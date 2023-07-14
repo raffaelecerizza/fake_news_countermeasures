@@ -35,6 +35,7 @@ class Node:
         self.id = id
         self.opinion = opinion
         self.type_sirv = "neutral"
+        self.type_sirv_next_timestep = ""
         self.type_role = "common"
         self.blocked = False
         self.number_complaints = 0
@@ -62,8 +63,6 @@ class Node:
     def update_type_sirv(self, dict_messages, dict_influencers, 
                         timestep, file_complaint):
         
-        random.shuffle(self.nodes_connected_to)
-
         # La lunghezza di dict_messages è pari al numero di utenti seguiti.
         for i in range(len(dict_messages)):
             followed_node = self.nodes_connected_to[i].id
@@ -106,15 +105,15 @@ class Node:
                         else:
                             prob_infection = self.prob_infection * opinion_diff
                         if prob < prob_infection:
-                            self.type_sirv = "infected"
+                            self.type_sirv_next_timestep = "infected"
                             self.time_infection = timestep
-                        # Se l'utente è ancora neutrale , allora 
+                        # Se l'utente è ancora neutrale, allora 
                         # con prob_vaccination * opinion_diff diventerà vaccinato.
                         if self.type_sirv == "neutral" and message == "infected":
                             prob = random.random()
                             prob_vaccination = self.prob_vaccination * opinion_diff
                             if prob < prob_vaccination:
-                                self.type_sirv = "vaccinated"
+                                self.type_sirv_next_timestep = "vaccinated"
                                 self.time_vaccination = timestep
 
                     # Se un utente neutrale vede un messaggio vaccinato, allora 
@@ -134,7 +133,7 @@ class Node:
                             prob_vaccination = (self.prob_vaccination * 
                                                 opinion_diff) 
                         if prob < prob_vaccination:
-                            self.type_sirv = "vaccinated"
+                            self.type_sirv_next_timestep = "vaccinated"
                             self.time_vaccination = timestep        
 
                     # Se un utente infetto vede un messaggio vaccinato, allora 
@@ -156,7 +155,7 @@ class Node:
                         else:
                             prob_cure = self.prob_cure * opinion_diff 
                         if prob < prob_cure:
-                            self.type_sirv = "cured"
+                            self.type_sirv_next_timestep = "cured"
                             self.time_cure = timestep
 
                     # Se un utente vaccinato vede un messaggio infetto, allora
@@ -208,12 +207,12 @@ class Node:
                 fraction_infected = count_infected / len(self.nodes_connected_to)
                 fraction_vaccinated = count_vaccinated / len(self.nodes_connected_to)
 
-                # Aggiorna il type_sirv del nodo se supera la soglia prob_echo
+                # Aggiorna il prossimo type_sirv del nodo se supera la soglia prob_echo
                 if (
                     fraction_infected >= self.prob_echo and
                     self.type_sirv == "neutral"
                 ):
-                    self.type_sirv = "infected"
+                    self.type_sirv_next_timestep = "infected"
                     self.infected_from_echo = True
                     self.vaccinated_from_echo = False
                     self.cured_from_echo = False
@@ -221,7 +220,7 @@ class Node:
                     fraction_vaccinated >= self.prob_echo and 
                     self.type_sirv == "neutral"
                 ):
-                    self.type_sirv = "vaccinated"
+                    self.type_sirv_next_timestep = "vaccinated"
                     self.infected_from_echo = False
                     self.vaccinated_from_echo = True
                     self.cured_from_echo = False
@@ -229,7 +228,7 @@ class Node:
                     fraction_vaccinated >= self.prob_echo and 
                     self.type_sirv == "infected"
                 ):
-                    self.type_sirv = "cured"
+                    self.type_sirv_next_timestep = "cured"
                     self.infected_from_echo = False
                     self.vaccinated_from_echo = False
                     self.cured_from_echo = True
@@ -250,9 +249,11 @@ class Node:
 
 
     def update(self, timestep, file_complaint):
-        # Eseguo l'update solo se l'utente è attivo nell'istante di tempo.
         dict_messages = {}
         dict_influencers = {}
+        # Riordino in modo random la lista dei nodi seguiti in modo da 
+        # evitare bias nell'ordine di lettura dei messaggi.
+        random.shuffle(self.nodes_connected_to)
         for i in range(len(self.nodes_connected_to)):
             node = self.nodes_connected_to[i].id
             messages = self.nodes_connected_to[i].get_messages()
@@ -261,11 +262,21 @@ class Node:
                 dict_influencers[node] = True
             else:
                 dict_influencers[node] = False
-        if timestep == self.next_timestep:
-            self.update_type_sirv(dict_messages, dict_influencers, 
-                                 timestep, file_complaint)
+
+        # Eseguo l'update solo se l'utente è attivo nell'istante di tempo.
+        if timestep == self.next_timestep: 
+            # Determino il nuovo stato in base all'echo chamber.
+            if (self.prob_echo > 0):  
+                self.update_echo_chamber()
+            # Determino il nuovo stato solo se non è già stato determinato 
+            # con il meccanismo dell'echo chamber.  
+            if self.type_sirv_next_timestep == "":
+                self.update_type_sirv(dict_messages, dict_influencers, 
+                                        timestep, file_complaint)
             self.publish_message(timestep)
             self.update_timestep(timestep)
+        # Riordino la lista dei nodi seguiti.
+        self.nodes_connected_to.sort(key=lambda x: x.id)
     
 
     def get_messages(self):
@@ -753,17 +764,21 @@ class Network:
 
     def update_nodes(self):
         self.global_timestep += 1
-        nodes = self.nodes
-        random.shuffle(nodes)
+        random.shuffle(self.nodes)
         for i in range(len(self.nodes)):
-            nodes[i].update(self.global_timestep, self.file_complaint)
-        if (self.prob_echo > 0):    
-            for i in range(len(self.nodes)):
-                nodes[i].update_echo_chamber()
+            self.nodes[i].update(self.global_timestep, self.file_complaint)
+        # Aggiorno in parallelo lo stato type_sirv in base a quanto
+        # calcolato con l'update.
+        for i in range(len(self.nodes)):
+            if self.nodes[i].type_sirv_next_timestep != "":
+                self.nodes[i].type_sirv = self.nodes[i].type_sirv_next_timestep
+                self.nodes[i].type_sirv_next_timestep = ""
         # Aggiorno lo status blocked dei nodi solo se il relativo
         # iperparametro è impostato a True.
         if self.user_block == True:
             self.block_nodes()
+        # Riordino la lista di nodi
+        self.nodes.sort(key=lambda x: x.id)
         self.compute_data_analysis()
 
 
