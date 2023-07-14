@@ -61,6 +61,9 @@ class Node:
 
     def update_type_sirv(self, dict_messages, dict_influencers, 
                         timestep, file_complaint):
+        
+        random.shuffle(self.nodes_connected_to)
+
         # La lunghezza di dict_messages è pari al numero di utenti seguiti.
         for i in range(len(dict_messages)):
             followed_node = self.nodes_connected_to[i].id
@@ -105,19 +108,18 @@ class Node:
                         if prob < prob_infection:
                             self.type_sirv = "infected"
                             self.time_infection = timestep
-
-                    # Se un utente neutrale vede un messaggio infetto, allora 
-                    # con prob_vaccination * opinion_diff diventerà vaccinato.
-                    if self.type_sirv == "neutral" and message == "infected":
-                        prob = random.random()
-                        prob_vaccination = self.prob_vaccination * opinion_diff
-                        if prob < prob_vaccination:
-                            self.type_sirv = "vaccinated"
-                            self.time_vaccination = timestep
+                        # Se l'utente è ancora neutrale , allora 
+                        # con prob_vaccination * opinion_diff diventerà vaccinato.
+                        if self.type_sirv == "neutral" and message == "infected":
+                            prob = random.random()
+                            prob_vaccination = self.prob_vaccination * opinion_diff
+                            if prob < prob_vaccination:
+                                self.type_sirv = "vaccinated"
+                                self.time_vaccination = timestep
 
                     # Se un utente neutrale vede un messaggio vaccinato, allora 
                     # con prob_vaccination * opinion_diff diventerà vaccinato.
-                    if self.type_sirv == "neutral" and message == "vaccinated":
+                    elif self.type_sirv == "neutral" and message == "vaccinated":
                         prob = random.random()
                         # Se il messaggio arriva da un influencer, la probabilità di
                         # essere vaccinato aumenta.
@@ -138,7 +140,7 @@ class Node:
                     # Se un utente infetto vede un messaggio vaccinato, allora 
                     # con prob_cure * opinion_diff diventerà curato.
                     # Non modifico lo stato dei bot.
-                    if (
+                    elif (
                         self.type_sirv == "infected" and 
                         self.type_role != "bot" and message == "vaccinated"
                     ):
@@ -160,7 +162,7 @@ class Node:
                     # Se un utente vaccinato vede un messaggio infetto, allora
                     # con prob_complaint invia un complaint all'utente infetto.
                     # La gestione dei complaint viene fatta dalla rete.    
-                    if self.type_sirv == "vaccinated" and message == "infected":
+                    elif self.type_sirv == "vaccinated" and message == "infected":
                         prob = random.random()
                         if (
                             prob < self.prob_complaint and 
@@ -168,18 +170,6 @@ class Node:
                         ):
                             self.users_complained.append(followed_node)
                             file_complaint(followed_node)
-
-        # Se una frazione di utenti seguiti con un certo type_sirv supera il 
-        # threshold prob_echo, allora anche il nodo assume lo stesso type_sirv.
-        # Non modifico lo stato di bot e fact checkers.
-        if (
-            self.prob_echo > 0 and self.type_role != "bot" and 
-            self.type_role != "fact checker"
-        ):
-            # Applico il meccanismo delle echo chamber solo se la soglia
-            # è maggiore di 0.50.
-            if (self.prob_echo > 0.50):
-                self.update_echo_chamber()
 
 
     def publish_message(self, timestep):
@@ -198,42 +188,51 @@ class Node:
 
 
     def update_echo_chamber(self):
-        # Conta il numero di nodi con type_sirv "infected" e "vaccinated" tra i nodi connessi
-        count_infected = sum(1 for node in self.nodes_connected_to 
-                             if node.type_sirv == "infected")
-        count_vaccinated = sum(1 for node in self.nodes_connected_to 
-                               if node.type_sirv == "vaccinated")
-     
-        # Calcola le frazioni di nodi "infected" e "vaccinated"
-        if (len(self.nodes_connected_to) != 0):
-            fraction_infected = count_infected / len(self.nodes_connected_to)
-            fraction_vaccinated = count_vaccinated / len(self.nodes_connected_to)
+        # Se una frazione di utenti seguiti con un certo type_sirv supera il 
+        # threshold prob_echo, allora anche il nodo assume lo stesso type_sirv.
+        # Non modifico lo stato di bot e fact checkers.
+        # Applico il meccanismo delle echo chamber solo se la soglia
+        # è maggiore di 0.50.
+        if (
+            self.prob_echo > 0.50 and self.type_role != "bot" and 
+            self.type_role != "fact checker"
+        ):
+            # Conta il numero di nodi con type_sirv "infected" e "vaccinated" tra i nodi connessi
+            count_infected = sum(1 for node in self.nodes_connected_to 
+                                if node.type_sirv == "infected")
+            count_vaccinated = sum(1 for node in self.nodes_connected_to 
+                                if node.type_sirv == "vaccinated")
+        
+            # Calcola le frazioni di nodi "infected" e "vaccinated"
+            if (len(self.nodes_connected_to) != 0):
+                fraction_infected = count_infected / len(self.nodes_connected_to)
+                fraction_vaccinated = count_vaccinated / len(self.nodes_connected_to)
 
-            # Aggiorna il type_sirv del nodo se supera la soglia prob_echo
-            if (
-                fraction_infected >= self.prob_echo and
-                self.type_sirv == "neutral"
-            ):
-                self.type_sirv = "infected"
-                self.infected_from_echo = True
-                self.vaccinated_from_echo = False
-                self.cured_from_echo = False
-            elif (
-                fraction_vaccinated >= self.prob_echo and 
-                self.type_sirv == "neutral"
-            ):
-                self.type_sirv = "vaccinated"
-                self.infected_from_echo = False
-                self.vaccinated_from_echo = True
-                self.cured_from_echo = False
-            elif (
-                fraction_vaccinated >= self.prob_echo and 
-                self.type_sirv == "infected"
-            ):
-                self.type_sirv = "cured"
-                self.infected_from_echo = False
-                self.vaccinated_from_echo = False
-                self.cured_from_echo = True
+                # Aggiorna il type_sirv del nodo se supera la soglia prob_echo
+                if (
+                    fraction_infected >= self.prob_echo and
+                    self.type_sirv == "neutral"
+                ):
+                    self.type_sirv = "infected"
+                    self.infected_from_echo = True
+                    self.vaccinated_from_echo = False
+                    self.cured_from_echo = False
+                elif (
+                    fraction_vaccinated >= self.prob_echo and 
+                    self.type_sirv == "neutral"
+                ):
+                    self.type_sirv = "vaccinated"
+                    self.infected_from_echo = False
+                    self.vaccinated_from_echo = True
+                    self.cured_from_echo = False
+                elif (
+                    fraction_vaccinated >= self.prob_echo and 
+                    self.type_sirv == "infected"
+                ):
+                    self.type_sirv = "cured"
+                    self.infected_from_echo = False
+                    self.vaccinated_from_echo = False
+                    self.cured_from_echo = True
 
 
     def update_timestep(self, timestep):
@@ -442,7 +441,7 @@ class Network:
                 self.nodes[random_index].type_sirv != "infected"
             ):
                 self.nodes[random_index].type_role = "fact checker"
-                # assumo che i fact cheker siano sempre vaccinati
+                # assumo che i fact checker siano sempre vaccinati
                 self.nodes[random_index].type_sirv = "vaccinated"
                 fact_checkers_list.append(random_index)
                 count += 1 
@@ -754,10 +753,13 @@ class Network:
 
     def update_nodes(self):
         self.global_timestep += 1
-        # Non serve mescolare i nodi in quanto l'aggiornamento di ogni nodo
-        # considera solo i messaggi degli istanti precedenti.
+        nodes = self.nodes
+        random.shuffle(nodes)
         for i in range(len(self.nodes)):
-            self.nodes[i].update(self.global_timestep, self.file_complaint)
+            nodes[i].update(self.global_timestep, self.file_complaint)
+        if (self.prob_echo > 0):    
+            for i in range(len(self.nodes)):
+                nodes[i].update_echo_chamber()
         # Aggiorno lo status blocked dei nodi solo se il relativo
         # iperparametro è impostato a True.
         if self.user_block == True:
