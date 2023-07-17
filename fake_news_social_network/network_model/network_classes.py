@@ -294,6 +294,9 @@ class Node:
         self.messages = {}
         self.prev_timestep = -1
         self.next_timestep = 0
+        self.infected_from_echo = False
+        self.vaccinated_from_echo = False
+        self.cured_from_echo = False
 
 
     def __str__(self):
